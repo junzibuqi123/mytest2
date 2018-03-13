@@ -10,9 +10,11 @@ import binascii
 import logging
 from hashlib import sha1
 from bcoding import bencode, bdecode
+from bisect import bisect_left
+from bisect import bisect_right
 K = 8
 HOST = '0.0.0.0'  
-PORT = 6881  
+PORT = 6884  
 class KNode(object):
      # """
      #节点信息包括nodeId ip 与port端口
@@ -32,7 +34,52 @@ class KBucket(object):
         self.max = max
         self.nodes = []
     def in_range(self, target):
-        return self.min <= intify(target) < self.max
+        return self.min <= int(intify(target)) < self.max
+    def append(self, node):
+                self.nodes.append(node)
+    def remove(self, node):
+        self.nodes.remove(node)
+class Ktable(object):        
+        def __init__(self, nid):       
+                self.nid = nid
+                self.kbs = []
+        def append(self, KBucket):
+                self.kbs.append(KBucket)
+        def minlist(self):
+                return list(map(lambda k:k.min,self.kbs))
+        def copyTwo(self,index):
+                kb=self.kbs[index]
+                point = kb.max - (kb.max - kb.min)/2
+                new = KBucket(point, kb.max)
+                kb.max = point
+                self.kbs.insert(index + 1, new)
+                for node in kb.nodes[:]:
+                    if new.in_range(node.nid):
+                        new.append(node)
+                        kb.remove(node)
+
+
+                
+        def dealNode(self,node):
+            flag=True
+            br=bisect_right(self.minlist(), int(intify(node.nid)))
+            index = br-1
+            kb=self.kbs[index]
+            #print(len(self.kbs))
+            for n in kb.nodes:
+                if int(intify(n.nid))==int(intify(node.nid)):
+                    #print("dddd1")
+                    flag=False
+            if flag:
+                if len(kb.nodes)==8:
+                    #print("dddd2")
+                    self.copyTwo(index)
+                    return True
+                else:
+                    kb.nodes.append(node)
+                    return True
+            return False
+            
 #解析收到的nodes
 def decode_nodes(nodes):
     n = []
@@ -57,6 +104,11 @@ def encode_nodes(nodes):
 def intify(hstr):
     #"""这是一个小工具, 把一个node ID转换为数字. 后面会频繁用到.""" 
     return  str(int(binascii.hexlify(hstr), 16)) #先转换成16进制, 再变成数字
+def proper_infohash(infohash):
+    if isinstance(infohash, bytes):
+        # Convert bytes to hex
+        infohash = binascii.hexlify(infohash).decode('utf-8')
+    return infohash.upper()
 
 def entropy(bytes):
     s = ""
@@ -71,33 +123,66 @@ def random_id(size=20):
 def getMessage(s):
     while True:  
         data,address = s.recvfrom(1024)
-        a=bdecode(data)
-        try: 
-            if(a["y"]=="r"):
-                if(a["t"]=="mycode"):
-                    continue
-                nodes=decode_nodes(a["r"]["nodes"])
+        msg=bdecode(data)
+        msg_type = msg.get("y", "e")
+        #print(msg_type)
+        #print(msg)
+        try:
+            if msg_type == "e":
+                return
+
+            if(msg_type == "r"):
+                nodes=decode_nodes(msg["r"]["nodes"])
                 #print (address)
-                dealNodes(nodes,s)
-            else:
-                print (a)
-                continue
+                dealFindNodesBack(nodes,s)
+            if(msg_type=="q"):
+                if msg["q"]=="ping":
+                    dealPing(msg,s,address)
+                if msg["q"]=="find_node":
+                    dealFideNodes(msg,s,address)
+                if msg["q"]=="get_peers":
+                    dealGetPeer(msg,s,address)
+                if msg["q"]=="announce_peer":
+                    dealAnnouncePeer(msg,s,address)
         except KeyError:
-                print(a)
+                print(msg)
                 continue
-def dealNodes(nodes,s):
-    d=2
+def dealFindNodesBack(nodes,s):
     for node in nodes:
-        if(intify(NodeId)==intify(node[0])):
-            d=4
-            break
-        msg={"t":"mycode", "y":"q","q":"find_node", "a":{"id":NodeId,"target":NodeId}}
-        if(d==4):
-            print(d)
-        s.sendto(bencode(msg),(node[1],node[2]))
+        if kt.dealNode(KNode(node[0],node[1],node[2])):
+            msg={"t":"mycode", "y":"q","q":"find_node", "a":{"id":NodeId,"target":NodeId}}
+            s.sendto(bencode(msg),(node[1],node[2]))
+def dealPing(msg,s,adress):
+    print("p")
+    tid=msg['t']
+    msg={"t":tid, "y":"r", "r":{"id":NodeId}}
+    s.sendto(bencode(msg),(adress))
+    return
+def dealFideNodes(msg,s,adress):
+    print("fn")
+    tid=msg['t']
+    msg={"t":tid, "y":"r", "r":{"id":NodeId,"nodes":""}}
+    s.sendto(bencode(msg),(adress))
+    return
+def dealGetPeer(msg,s,adress):
+    tid=msg['t']
+    infohash = msg["a"]["info_hash"]
+    infohash = proper_infohash(infohash)
+    print("getPeer: "+infohash)    
+    token = infohash[:2]
+    msg={"t":tid, "y":"r", "r":{"id":NodeId,"nodes":"", "token":token}}
+    s.sendto(bencode(msg),(adress))     
+    return
+def dealAnnouncePeer(msg,s,adress):
+    infohash = msg["a"]["info_hash"]
+    infohash = proper_infohash(infohash)
+    print("AnnouncePeer: "+infohash)    
+    return
 print("start")
 NodeId=random_id()
-
+kt=Ktable(NodeId)
+kb=KBucket(0,2**160)
+kt.append(kb)
 print(NodeId)
 print(str(int(binascii.hexlify(NodeId), 16)))
 ServerName = 'router.utorrent.com'
