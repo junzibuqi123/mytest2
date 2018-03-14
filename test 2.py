@@ -12,9 +12,10 @@ from hashlib import sha1
 from bcoding import bencode, bdecode
 from bisect import bisect_left
 from bisect import bisect_right
+import queue
 K = 8
-HOST = '0.0.0.0'  
-PORT = 6884  
+
+LOCAL_ADDR=('0.0.0.0', 48391)
 class KNode(object):
      # """
      #节点信息包括nodeId ip 与port端口
@@ -49,7 +50,7 @@ class Ktable(object):
                 return list(map(lambda k:k.min,self.kbs))
         def copyTwo(self,index):
                 kb=self.kbs[index]
-                print(len(self.kbs))
+                #print(len(self.kbs))
                 point = kb.max - (kb.max - kb.min)/2
                 new = KBucket(point, kb.max)
                 kb.max = point
@@ -121,10 +122,11 @@ def random_id(size=20):
     hash = sha1()
     hash.update( entropy(20).encode("utf8") )
     return hash.digest()
-def getMessage(s):
+def getMessage(s,q):
     while True:  
-        data,address = s.recvfrom(65536)
+        
         try:
+            data,address = s.recvfrom(65536)
             msg=bdecode(data)
             msg_type = msg.get("y", "e")
             #print(msg_type)
@@ -135,67 +137,104 @@ def getMessage(s):
             if(msg_type == "r"):
                 nodes=decode_nodes(msg["r"]["nodes"])
                 #print (address)
-                dealFindNodesBack(nodes,s)
+                dealFindNodesBack(nodes,s,q)
             if(msg_type=="q"):
                 if msg["q"]=="ping":
-                    dealPing(msg,s,address)
+                    dealPing(msg,s,address,q)
                 if msg["q"]=="find_node":
-                    dealFideNodes(msg,s,address)
+                    dealFideNodes(msg,s,address,q)
                 if msg["q"]=="get_peers":
-                    dealGetPeer(msg,s,address)
+                    dealGetPeer(msg,s,address,q)
                 if msg["q"]=="announce_peer":
-                    dealAnnouncePeer(msg,s,address)
-        except KeyError:
+                    dealAnnouncePeer(msg,s,address,q)
+        except :
                 print("error")
-                print(msg)
-                continue
-def dealFindNodesBack(nodes,s):
+                pass
+def dealFindNodesBack(nodes,s,q):
     for node in nodes:
         if kt.dealNode(KNode(node[0],node[1],node[2])):
-            msg={"t":"mycode", "y":"q","q":"find_node", "a":{"id":NodeId,"target":NodeId}}
-            back=s.sendto(bencode(msg),(node[1],node[2]))
-def dealPing(msg,s,adress):
+            msg={"t":"mycode", "y":"q","q":"find_node", "a":{"id":random_id(),"target":random_id()}}
+            adress=(node[1],node[2])
+            msg2={"t":"mycode", "y":"q","q":"ping", "a":{"id":fake_node_id(node[0])}}
+            #time.sleep( 0.1 )
+            addQ(q,msg2,adress)
+            addQ(q,msg,adress)
+            
+            
+def dealPing(msg,s,adress,q):
     print("p")
     tid=msg['t']
-    msg={"t":tid, "y":"r", "r":{"id":NodeId}}
-    s.sendto(bencode(msg),(adress))
-    return
-def dealFideNodes(msg,s,adress):
+    msg={"t":tid, "y":"r", "r":{"id":random_id()}}
+    addQ(q,msg,adress)
+def dealFideNodes(msg,s,adress,q):
     print("fn")
     tid=msg['t']
-    msg={"t":tid, "y":"r", "r":{"id":NodeId,"nodes":""}}
+    msg={"t":tid, "y":"r", "r":{"id":random_id(),"nodes":""}}
     print(msg)
-    s.sendto(bencode(msg),(adress))
-    return
-def dealGetPeer(msg,s,adress):
+    addQ(q,msg,adress)
+def dealGetPeer(msg,s,adress,q):
     tid=msg['t']
     infohash = msg["a"]["info_hash"]
+    token = infohash[:2]
     infohash = proper_infohash(infohash)
     print("getPeer: "+infohash)    
-    token = infohash[:2]
     msg={"t":tid, "y":"r", "r":{"id":NodeId,"nodes":"", "token":token}}
     print(msg)
-    s.sendto(bencode(msg),(adress))     
-    return
+    addQ(q,msg,adress)
 def dealAnnouncePeer(msg,s,adress):
     infohash = msg["a"]["info_hash"]
     infohash = proper_infohash(infohash)
     print("AnnouncePeer: "+infohash)    
     return
-print("start")
-NodeId=random_id()
-kt=Ktable(NodeId)
-kb=KBucket(0,2**160)
-kt.append(kb)
-print(NodeId)
-print(str(int(binascii.hexlify(NodeId), 16)))
-ServerName = 'router.utorrent.com'
-ServerPort = 6881
-clientSocket =socket.socket(socket.AF_INET,socket.SOCK_DGRAM)
-clientSocket.bind((HOST,PORT))
-clientSocket.settimeout(5)
-msg={"t":"mycode", "y":"q","q":"find_node", "a":{"id":NodeId,"target":NodeId}}
-clientSocket.sendto(bencode(msg),(ServerName,ServerPort))
-_thread.start_new_thread( getMessage, (clientSocket, ) )
+def addQ(q,msg,adress):
+    qi=[msg,adress]
+    if q.qsize()<1000:  
+        q.put(qi)
+def fake_node_id(node_id):
+        return node_id[:-1]+random_id()[-1:]
+    
+def sendMSGUDP(q,s):
+    a=0
+    while True:
+        if q.empty():
+            initRoute(s)
+            
+        a=a+1
+        qi=q.get()
+        msg=qi[0]
+        adress=qi[1]
+        #print(adress)
+        s.sendto(bencode(msg),adress)
+
+BOOTSTRAP_NODES = (
+    ("router.bittorrent.com", 6881),
+    ("dht.transmissionbt.com", 6881),
+    ("router.utorrent.com", 6881)
+)
+def createSocekt(addr):
+    clientSocket =socket.socket(socket.AF_INET,socket.SOCK_DGRAM)
+    clientSocket.bind(addr)
+    clientSocket.settimeout(5)
+    return clientSocket
+def createKtable():
+    NodeId=random_id()
+    kt=Ktable(NodeId)
+    kb=KBucket(0,2**160)
+    kt.append(kb)
+    return kt
+def initRoute(clientSocket):
+    for r in BOOTSTRAP_NODES:
+        msg={"t":"mycode", "y":"q","q":"find_node", "a":{"id":random_id(),"target":random_id()}}
+        clientSocket.sendto(bencode(msg),r)
+        
+print("start")   
+q = queue.Queue()
+
+kt=createKtable()
+clientSocket=createSocekt(LOCAL_ADDR)
+initRoute(clientSocket)
+
+_thread.start_new_thread( getMessage, (clientSocket,q, ) )
+_thread.start_new_thread( sendMSGUDP, (q,clientSocket, ) )
 
 
