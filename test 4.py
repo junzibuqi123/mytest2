@@ -14,6 +14,8 @@ from bisect import bisect_left
 from bisect import bisect_right
 from threading import Thread
 import queue
+import peers3
+#import getPeers
 K = 8
 
 LOCAL_ADDR=('0.0.0.0', 48391)
@@ -86,7 +88,14 @@ class Ktable(object):
                 else:
                     kb.nodes.append(node)
                     return True
-            return False
+            return True
+        def dealapper(self,info):
+            br=bisect_right(self.minlist(), int(intify(info)))
+            index = br-1
+            kb=self.kbs[index]
+            return kb
+            
+            
             
 #解析收到的nodes
 def decode_nodes(nodes):
@@ -132,7 +141,7 @@ def getMessage(s,q):
     while True:  
         
         try:
-            data,address = s.recvfrom(65536)
+            data,address = s.recvfrom(1024*64)
             msg=bdecode(data)
             msg_type = msg.get("y", "e")
             #print(msg_type)
@@ -153,9 +162,10 @@ def getMessage(s,q):
                 elif msg["q"]=="get_peers":
                     dealGetPeer(msg,s,address,q)
                 elif msg["q"]=="announce_peer":
-                    dealAnnouncePeer(msg,s,address)
+                    dealAnnouncePeer(msg,s,address,q)
                 else:
-                     print(msg)
+                    pass
+                     #print(msg)
         except ConnectionResetError:
             print("ldldldldlldldlld=======")
             
@@ -163,12 +173,13 @@ def getMessage(s,q):
                 print("error")
                 print(msg)
                # print (ExceptionType)
-               # raise
+                #raise
 def dealFindNodesBack(nodes,s,q):
     for node in nodes:
         #if kt.dealNode(KNode(node[0],node[1],node[2])):
             msg={"t":random_id()[:6], "y":"q","q":"find_node", "a":{"id":random_id(),"target":random_id()}}
             adress=(node[1],node[2])
+            #print(node[0])
             msg2={"t":random_id()[:6], "y":"q","q":"ping", "a":{"id":fake_node_id(node[0])}}
             addQ(q,msg2,adress)
             addQ(q,msg,adress)
@@ -195,14 +206,22 @@ def dealGetPeer(msg,s,adress,q):
     #token = infohash[:2]
     msg={"t":tid, "y":"r", "r":{"id":fake_node_id(infohash),"nodes":"", "token":random_id()[:6]}}
     #print("getPeer: "+infohash2)
-   
     addQ(q,msg,adress)
-def dealAnnouncePeer(msg,s,adress):
+def query_get_peer(info,q):
+    neikb=kt.dealapper(info)
+    msg={"t":random_id()[:6], "y":"q","q":"get_peers", "a":{"id":random_id(),"info_hash":info}}
+    getPeers.sendgetpeers(info,neikb.nodes,msg)
+    
+        
+def dealAnnouncePeer(msg,s,adress,q):
     print("goooooood")
     infohash = msg["a"]["info_hash"]
-    infohash = proper_infohash(infohash)
-    print("AnnouncePeer: "+infohash)
-    f.write(infohash+"\n")
+    print(msg)
+    print(adress)
+    infohash2 = proper_infohash(infohash)
+    print("AnnouncePeer: "+infohash2)
+    #query_get_peer(infohash,q)
+    _thread.start_new_thread( peers3.getInfoMessage, (adress,infohash,infohash2, ) )
     return
 def addQ(q,msg,adress):
     qi=[msg,adress]
@@ -254,7 +273,7 @@ q = queue.Queue()
 kt=createKtable()
 clientSocket=createSocekt(LOCAL_ADDR)
 initRoute(clientSocket)
-f = open('cili.txt','a',encoding='utf-8')
+#f = open('cili3.txt','a',encoding='utf-8')
 
 _thread.start_new_thread( getMessage, (clientSocket,q, ) )
 _thread.start_new_thread( sendMSGUDP, (q,clientSocket, ) )
