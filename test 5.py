@@ -175,6 +175,42 @@ def getMessage(s,q):
                 print(msg)
                # print (ExceptionType)
                 #raise
+def getMessage22(s,q):
+        
+        try:
+            data,address = s.recvfrom(1024*64)
+            msg=bdecode(data)
+            msg_type = msg.get("y", "e")
+            #print(msg_type)
+            #print(msg)
+            if msg_type == "e":
+                pass
+
+            if(msg_type == "r"):
+                if "nodes" in msg["r"]:
+                    nodes=decode_nodes(msg["r"]["nodes"])
+                    #print (address)
+                    dealFindNodesBack(nodes,s,q)
+            if(msg_type=="q"):
+                if msg["q"]=="ping":
+                    dealPing(msg,s,address,q)
+                elif msg["q"]=="find_node":
+                    dealFideNodes(msg,s,address,q)
+                elif msg["q"]=="get_peers":
+                    dealGetPeer(msg,s,address,q)
+                elif msg["q"]=="announce_peer":
+                    dealAnnouncePeer(msg,s,address,q)
+                else:
+                    pass
+                     #print(msg)
+        except ConnectionResetError:
+            print("ldldldldlldldlld=======")
+            
+        except :
+                print("error")
+                print(msg)
+               # print (ExceptionType)
+                #raise
 def dealFindNodesBack(nodes,s,q):
     for node in nodes:
         #if kt.dealNode(KNode(node[0],node[1],node[2])):
@@ -206,7 +242,7 @@ def dealGetPeer(msg,s,adress,q):
     infohash2 = proper_infohash(infohash)
     #token = infohash[:2]
     msg={"t":tid, "y":"r", "r":{"id":fake_node_id(infohash),"nodes":"", "token":random_id()[:6]}}
-    #print("getPeer: "+infohash2)
+    print("getPeer: "+infohash2)
     addQ(q,msg,adress)
 def query_get_peer(info,q):
     neikb=kt.dealapper(info)
@@ -246,7 +282,10 @@ def sendMSGUDP(q,s):
         msg=qi[0]
         adress=qi[1]
         #print(adress)
-        s.sendto(bencode(msg),adress)
+        s=createSocekt(adress)
+        s.send(bencode(msg))
+        t = threading.Thread(target= getMessage22,args=(s,q,))
+        t.start()
         #print("------->"+str(q.qsize())+"/n")
 
 BOOTSTRAP_NODES = (
@@ -255,6 +294,10 @@ BOOTSTRAP_NODES = (
     ("router.utorrent.com", 6881)
 )
 def createSocekt(addr):
+    clientSocket =socket.socket(socket.AF_INET,socket.SOCK_DGRAM)
+    clientSocket.connect(addr)
+    return clientSocket
+def createSocekt2(addr):
     clientSocket =socket.socket(socket.AF_INET,socket.SOCK_DGRAM)
     clientSocket.bind(addr)
     return clientSocket
@@ -274,9 +317,8 @@ def restartClientConnect():
 print("start")
 try:
     q = queue.Queue()
-
     kt=createKtable()
-    clientSocket=createSocekt(LOCAL_ADDR)
+    clientSocket=createSocekt2(LOCAL_ADDR)
     initRoute(clientSocket)
     #f = open('cili3.txt','a',encoding='utf-8')
     mu = threading.Lock()

@@ -78,13 +78,13 @@ adrr=('94.158.68.67', 30670)
 infohash=b'\xc3\x9d\x89\xdaR0\xbd\xbd\x1a\x00\xf8n\x04\xa3Y\x1f\x96\xfe\xc6\xbc'
 #adrr=('125.77.58.208', 9639)
 #infohash=b'Q\x1b\xb4B\x04\xe5\x92\x8c\xcd\x1d\xebp\x13\x94\x03\x82|\n\x83v'
-def getInfoMessage(adrr,infohash,infohash2):
+def getInfoMessage(adrr,infohash,infohash2,mu):
     try:
         begin = time()
         the_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         the_socket.connect(adrr)
         
-        print(type(infohash))
+        #print(type(infohash))
         send_handshake(the_socket, infohash)
         packet = the_socket.recv(4096)
         #print(packet)
@@ -96,23 +96,26 @@ def getInfoMessage(adrr,infohash,infohash2):
         if(ut_metadata==-1): 
             packet=the_socket.recv(4096)
         ut_metadata, metadata_size = get_ut_metadata(packet), get_metadata_size(packet)
-        print("ut_metadata,and metadata_size")
-        print(ut_metadata,metadata_size)
+        #print("ut_metadata,and metadata_size")
+        #print(ut_metadata,metadata_size)
         request_metadata(the_socket, ut_metadata, 0)
         packet = recvall(the_socket, "".encode()) #the_socket.recv(1024*17)
         metadata=packet    
         #print(metadata)        
         result=bdecode(metadata)
-        #mu = threading.Lock()
+        
         #if mu.acquire(True):
-        f = open('cili4.txt','a',encoding='utf-8')
+            #print("ddddddddddddddddddddddd")
+        f = open('cili5.txt','a',encoding='utf-8')
         print(result["name"])
         f.write(infohash2+" "+result["name"]+"\n")
         f.close()
             #mu.release()
         print(time()-begin)
         the_socket.close()
+        #raise RuntimeError('testError')
     except :
+        #raise
         return 
 
 
